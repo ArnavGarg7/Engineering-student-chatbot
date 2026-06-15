@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Environment / secrets — NEVER commit the .env file
+.env
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# SQLite database (regenerate with: py -3.13 generate_db.py)
+engineering_college.db
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
