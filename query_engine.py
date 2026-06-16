@@ -6,12 +6,15 @@ import re
 import sqlite3
 from pathlib import Path
 from typing import Any, Iterable
-
+import concurrent.futures
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "engineering_college.db"
 
 logger = logging.getLogger("query_engine")
+
+# Global thread pool for parallel API calls
+_thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=10)
 
 
 @dataclass
@@ -735,26 +738,37 @@ def route_question(question: str) -> QueryResult:
     This waterfall ensures 100% backward compatibility: existing rule-based
     queries continue to work even if the AI layer is disabled or fails.
     """
-    # ── Step 1: AI-assisted intent extraction ────────────────────────────────
-    # Import is deferred here so that if google-generativeai is not installed
-    # the server still starts and the rule-based engine works normally.
+    # ── Step 0: Launch parallel API calls ────────────────────────────────────
+    # To reduce latency for custom queries, we launch both Layer 1 (AI intent)
+    # and Layer 4 (Text-to-SQL) immediately. If Layer 1 or rule-based matching
+    # handles the query quickly, the SQL generation thread just finishes silently
+    # in the background without delaying the user.
+    future_ai = None
+    future_sql = None
     try:
         from ai_service import extract_intent  # noqa: PLC0415
-        ai_intent = extract_intent(question)
-        if ai_intent is not None:
-            dispatched = _dispatch_ai_intent(ai_intent)
-            if dispatched is not None:
-                logger.info("AI resolved question to intent=%r", ai_intent.intent)
-                return dispatched
-            # If dispatch returned None (e.g. missing field) fall through
-            logger.warning(
-                "AI intent %r could not be dispatched — falling back to rule-based engine.",
-                ai_intent.intent,
-            )
+        from text_to_sql import run_text_to_sql  # noqa: PLC0415
+        future_ai = _thread_pool.submit(extract_intent, question)
+        future_sql = _thread_pool.submit(run_text_to_sql, question)
     except Exception as exc:  # noqa: BLE001
-        # Catch-all: any unexpected error in the AI layer must not surface to
-        # the user — the rule-based engine is the guaranteed fallback.
-        logger.warning("Unexpected error in AI layer: %s — using rule-based engine.", exc)
+        logger.warning("Could not launch generative API calls: %s", exc)
+
+    # ── Step 1: AI-assisted intent extraction ────────────────────────────────
+    if future_ai is not None:
+        try:
+            ai_intent = future_ai.result(timeout=15)
+            if ai_intent is not None:
+                dispatched = _dispatch_ai_intent(ai_intent)
+                if dispatched is not None:
+                    logger.info("AI resolved question to intent=%r", ai_intent.intent)
+                    return dispatched
+                # If dispatch returned None (e.g. missing field) fall through
+                logger.warning(
+                    "AI intent %r could not be dispatched — falling back to rule-based engine.",
+                    ai_intent.intent,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Unexpected error in AI layer: %s — using rule-based engine.", exc)
 
     # ── Step 2: Rule-based keyword / alias matching ───────────────────────────
     normalized = normalize_text(question)
@@ -875,20 +889,19 @@ def route_question(question: str) -> QueryResult:
         logger.warning("Semantic engine error: %s — returning could-not-parse.", exc)
 
     # ── Step 4: Text-to-SQL ───────────────────────────────────────────────
-    # Last resort: Gemini generates a SELECT query from scratch using the
-    # database schema as context.  Only questions that genuinely cannot be
-    # answered reach this layer (e.g. city-based, age-based, custom analytics).
-    try:
-        from text_to_sql import run_text_to_sql  # noqa: PLC0415
-        sql_result = run_text_to_sql(question)
-        if sql_result is not None:
-            logger.info(
-                "Text-to-SQL resolved question source=%r title=%r",
-                sql_result.source, sql_result.title,
-            )
-            return sql_result
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Text-to-SQL error: %s — returning could-not-parse.", exc)
+    # Last resort: retrieve the result of the Gemini SQL generation we
+    # submitted in the background at the very start.
+    if future_sql is not None:
+        try:
+            sql_result = future_sql.result(timeout=20)
+            if sql_result is not None:
+                logger.info(
+                    "Text-to-SQL resolved question source=%r title=%r",
+                    sql_result.source, sql_result.title,
+                )
+                return sql_result
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Text-to-SQL error: %s — returning could-not-parse.", exc)
 
     # Catch-all: question not recognised by any layer
     return QueryResult(

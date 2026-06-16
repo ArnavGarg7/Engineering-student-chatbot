@@ -1,21 +1,3 @@
-"""
-text_to_sql.py
-==============
-Layer 4 of the query resolution pipeline: Text-to-SQL via Gemini.
-
-Called only when all three previous layers (AI intent, rule-based, semantic)
-have failed to handle the question.  Generates an arbitrary SELECT query from
-the user's natural-language question using the database schema as context.
-
-Security model
---------------
-- Only SELECT statements are allowed (whitelist check on first token).
-- A blacklist of destructive keywords blocks any unexpected model output.
-- Generated SQL is executed on a read-only SQLite URI connection.
-- Results are capped at MAX_ROWS rows.
-- Any execution error is caught and returned as a friendly message.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -73,17 +55,8 @@ marks
 """.strip()
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
 def run_text_to_sql(question: str):
-    """
-    End-to-end Text-to-SQL pipeline.
 
-    Returns a QueryResult with source='text-to-sql' and generated_sql set,
-    or None if SQL generation fails entirely.
-    """
     from query_engine import QueryResult   # deferred to avoid circular import
 
     sql_raw = _generate_sql(question)
@@ -106,9 +79,6 @@ def run_text_to_sql(question: str):
     return _execute(question, sql_safe)
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
 
 def _generate_sql(question: str) -> str | None:
     """Call Gemini to generate a SELECT query. Returns raw SQL or None."""

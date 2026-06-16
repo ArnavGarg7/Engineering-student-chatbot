@@ -1,33 +1,3 @@
-"""
-semantic_engine.py
-==================
-Vector embedding-based semantic similarity search — third layer of the query
-resolution pipeline.
-
-Resolution order in route_question():
-  1. Gemini AI intent extraction   (ai_service.py)
-  2. Rule-based keyword matching   (query_engine.py)
-  3. Semantic similarity search    ← this module        (NEW)
-  4. "I could not parse that"      ← last resort
-
-How it works
-------------
-At first use, SemanticEngine embeds ~5 canonical example questions for every
-supported intent using Gemini's text-embedding-004 model (65 vectors total).
-These are cached in memory for the lifetime of the server process.
-
-When a question reaches layer 3, it is embedded with the same model, and
-cosine similarity is computed against every cached example vector.  The highest-
-scoring intent is returned if it clears the confidence threshold (default 0.75).
-
-Graceful degradation
---------------------
-- No GEMINI_API_KEY → engine is disabled, find_intent() always returns None.
-- google-genai not installed → same.
-- Any API error → logged as a warning, find_intent() returns None.
-In all cases the caller falls through to the "could not parse" response.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -36,19 +6,10 @@ from typing import Any
 
 logger = logging.getLogger("semantic_engine")
 
-# ---------------------------------------------------------------------------
 # Similarity threshold
-# ---------------------------------------------------------------------------
-# Raise this (e.g. 0.80) if wrong intents are being matched.
-# Lower this (e.g. 0.70) if too many valid questions still fail.
+
 SIMILARITY_THRESHOLD = 0.75
 
-# ---------------------------------------------------------------------------
-# INTENT_EXAMPLES
-# ---------------
-# 5 varied phrasings per intent.  Variety is important: the embedding model
-# generalises well, but covering different vocabulary anchors each cluster.
-# ---------------------------------------------------------------------------
 INTENT_EXAMPLES: dict[str, list[str]] = {
     "list_departments": [
         "List all engineering departments",
@@ -145,40 +106,19 @@ INTENT_EXAMPLES: dict[str, list[str]] = {
 
 
 class SemanticEngine:
-    """
-    Embedding-based intent classifier used as the third fallback layer.
-
-    Usage
-    -----
-    engine = SemanticEngine()
-    intent_name = engine.find_intent("Give me the semester breakdown of 2025-CSE-001")
-    # Returns "semester_performance" or None
-    """
-
     def __init__(self) -> None:
         self._cache: dict[str, list[float]] | None = None  # intent → centroid vector
         self._ready: bool = False
 
-    # -----------------------------------------------------------------------
-    # Public API
-    # -----------------------------------------------------------------------
 
     def find_intent(self, question: str) -> str | None:
-        """
-        Embed *question* and return the closest matching intent name, or None.
 
-        Returns None if:
-        - No API key is configured.
-        - google-genai is not installed.
-        - The best match scores below SIMILARITY_THRESHOLD.
-        - Any embedding API call fails.
-        """
         api_key = os.environ.get("GEMINI_API_KEY", "").strip()
         if not api_key:
             return None
 
         try:
-            from google import genai  # type: ignore[import]
+            from google import genai  
         except ImportError:
             return None
 
@@ -213,15 +153,9 @@ class SemanticEngine:
         """Return True if example embeddings have been loaded."""
         return self._ready
 
-    # -----------------------------------------------------------------------
-    # Internal helpers
-    # -----------------------------------------------------------------------
 
     def _load_examples(self, api_key: str) -> None:
-        """
-        Embed all example questions and store the centroid vector per intent.
-        Called once, results cached for the lifetime of the process.
-        """
+
         logger.info("Semantic engine: loading %d intent clusters…", len(INTENT_EXAMPLES))
         centroids: dict[str, list[float]] = {}
 
@@ -270,11 +204,6 @@ class SemanticEngine:
                 best_intent = intent
         return best_intent, best_score
 
-
-# ---------------------------------------------------------------------------
-# Math helpers (pure Python + optional numpy)
-# ---------------------------------------------------------------------------
-
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     """Cosine similarity between two vectors. Uses numpy if available."""
     try:
@@ -303,7 +232,4 @@ def _mean_vector(vectors: list[list[float]]) -> list[float]:
     return [sum(v[i] for v in vectors) / n for i in range(length)]
 
 
-# ---------------------------------------------------------------------------
-# Module-level singleton — imported by query_engine.py
-# ---------------------------------------------------------------------------
 engine = SemanticEngine()
