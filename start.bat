@@ -1,6 +1,6 @@
 @echo off
 echo Starting backend...
-start "Backend - FastAPI" cmd /k "py -3.13 -m uvicorn app_server:app --reload --port 8000"
+start "Backend - FastAPI" cmd /k "python -m uvicorn app_server:app --reload --port 8000"
 
 echo Starting frontend...
 start "Frontend - React" cmd /k "cd frontend && npm run dev"

@@ -15,7 +15,7 @@ The project was built as an internship exercise covering:
 - Relational database design with SQLite
 - RESTful API development with FastAPI
 - React + Vite single-page application frontend
-- AI integration using Google Gemini for natural-language understanding
+- Advanced AI integrations: Multi-turn contextual memory, Provider Failover, and RAG Schema Indexing
 - Synthetic data generation with the Faker library (Indian locale)
 
 ---
@@ -35,7 +35,11 @@ The project was built as an internship exercise covering:
 | **Average analysis** | Average marks by department and by individual subject |
 | **4-Layer Query Engine** | Intent Extraction → Keyword Rules → Semantic Similarity → Text-to-SQL |
 | **Semantic Search** | Vector embeddings (models/embedding-001) for fuzzy intent matching |
-| **Text-to-SQL** | Gemini dynamically generates safe, read-only SQL for unsupported questions |
+| **Multi-turn Context** | Tracks filters (department, city, gender) across follow-up queries |
+| **Multilingual Support** | Automatic translation and routing for Hindi and Spanish queries |
+| **Provider Failover** | Auto-fallback between Gemini, Groq, and OpenRouter during outages |
+| **RAG Schema Indexing** | Ingests SQL schema into ChromaDB for dynamic context retrieval |
+| **Text-to-SQL Guardrail** | Dedicated LLM-based verification to prevent hallucinated WHERE clauses |
 | **Abbreviation support** | CSE, ECE, ME, IT, EEE, BT, and more are all recognised |
 | **Synthetic data** | Faker (en\_IN locale) generates realistic Indian names and cities |
 
@@ -58,11 +62,12 @@ The project was built as an internship exercise covering:
 | React | 18.2 | UI component library |
 | Vite | 5.1 | Build tool and dev server |
 
-### AI
+### AI & Data
 | Tool | Version | Purpose |
 |---|---|---|
-| Google Gemini API | gemini-1.5-flash | Natural-language intent extraction & Text-to-SQL |
-| Google Gemini API | embedding-001 | Vector embeddings for semantic similarity search |
+| Google Gemini API | gemini-1.5-flash | Natural-language intent extraction & primary Text-to-SQL |
+| Groq / OpenRouter | - | High-availability fallback LLM providers |
+| ChromaDB | ≥ 0.4 | Vector database for RAG schema injection and semantic routing |
 | google-genai | ≥ 0.5 | Official Python SDK |
 
 ### Data Generation
@@ -147,18 +152,22 @@ FastAPI Backend (Uvicorn, port 8000)
       │   ├── 2. Rule-based Fallback
       │   │      → Matches exact keywords & abbreviations.
       │   │
-      │   ├── 3. semantic_engine.py (Vector Embeddings)
-      │   │      → Cosine similarity against 65 pre-embedded example questions.
+      │   ├── 3. semantic_engine.py (Vector Embeddings via ChromaDB)
+      │   │      → Cosine similarity against pre-embedded example questions.
       │   │
-      │   └── 4. text_to_sql.py (Gemini SQL Generation)
+      │   └── 4. text_to_sql.py (RAG-enhanced SQL Generation)
+      │          → Retrieves relevant schema chunks from ChromaDB.
       │          → Generates raw SELECT query from DB schema.
+      │          → Runs output through an LLM Verification Guardrail to prevent hallucinated filters.
       │          → Validates safety (no DROP/DELETE, adds LIMIT 200).
       │
       ▼
 SQLite Database (engineering_college.db)
 ```
 
-**Security**: The system is designed to be safe by default. Layers 1-3 never generate SQL; they only map to pre-written, parameterized queries. Layer 4 generates SQL but is strictly validated (must start with SELECT, no mutating keywords) and executed against a read-only database connection.
+**Resilience**: The system supports automatic provider failover. If the Gemini API rate limits or goes offline, `llm_provider.py` automatically routes requests to Groq or OpenRouter seamlessly.
+
+**Security**: The system is designed to be safe by default. Layers 1-3 never generate SQL; they only map to pre-written, parameterized queries. Layer 4 generates SQL but is strictly validated (must start with SELECT, no mutating keywords, and verified by an independent LLM check) and executed against a read-only database connection.
 
 ---
 

@@ -5,3 +5,9 @@ uvicorn[standard]>=0.22
 google-genai>=0.5
 python-dotenv>=1.0
 numpy>=1.26
+chromadb>=0.4.0
+groq>=0.5.0
+openai>=1.0.0
+requests>=2.31.0
+langdetect  
+ 

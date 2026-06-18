@@ -44,3 +44,21 @@ CREATE INDEX idx_subjects_department_semester ON subjects(department_id, semeste
 CREATE INDEX idx_marks_roll_no ON marks(roll_no);
 CREATE INDEX idx_marks_subject ON marks(subject_id);
 CREATE INDEX idx_marks_semester ON marks(semester);
+
+CREATE TABLE chat_sessions (
+    session_id TEXT PRIMARY KEY,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    conversation_summary TEXT
+);
+
+CREATE TABLE chat_messages (
+    message_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT,
+    structured_data TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id)
+);
+
+CREATE INDEX idx_chat_messages_session ON chat_messages(session_id);

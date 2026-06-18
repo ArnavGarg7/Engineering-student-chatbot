@@ -25,3 +25,8 @@ frontend/dist/
 .idea/
 *.suo
 *.user
+
+chroma_db/
+*.db
+
+*.txt

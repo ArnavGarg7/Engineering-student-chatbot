@@ -50,6 +50,7 @@ class IntentResult:
     year: int | None = None
     roll_no: str | None = None
     subject: str | None = None
+    confidence: float = 1.0
     source: str = field(default="ai", init=False)
 
 
@@ -59,7 +60,7 @@ class AIServiceError(Exception):
 
 # Prompt template
 
-def _build_prompt(question: str) -> str:
+def _build_prompt(question: str, context: str = "") -> str:
 
     intent_descriptions = "\n".join(
         f"  {intent}: requires fields {fields if fields else '(none)'}"
@@ -90,8 +91,9 @@ RULES:
 - Include only entity fields that are clearly present in the question.
 - "year" must be an integer 1, 2, 3, or 4.
 - "roll_no" format: YYYY-DEPT-NNN  (e.g. 2025-CSE-001).
+- Include a "confidence" field (float 0.0 to 1.0) indicating how certain you are of this intent.
 - If the question cannot be mapped to a supported intent, return:
-  {{"intent": "unknown"}}
+  {{"intent": "unknown", "confidence": 0.0}}
 
 EXAMPLES:
 User: "Which department has the best academic performance?"
@@ -107,85 +109,51 @@ User: "What is the transcript of 2025-CSE-001?"
 Output: {{"intent": "academic_history", "roll_no": "2025-CSE-001"}}
 
 User: "How many ECE second year students passed?"
-Output: {{"intent": "pass_fail_counts", "department": "Electronics & Communication Engineering", "year": 2}}
+Output: {{"intent": "pass_fail_counts", "department": "Electronics & Communication Engineering", "year": 2, "confidence": 0.95}}
 
-Now classify this question:
+CONTEXT FROM PREVIOUS CONVERSATION (including Summaries and Recent Messages):
+{context}
+
+Now classify this latest question.
+CRITICAL CONTEXT INHERITANCE RULES:
+1. If the user specifies "Only 3rd year" without a department, but the previous context was discussing "Computer Science", you MUST output both "department": "Computer Science" and "year": 3.
+2. Maintain constraints like department, year, or roll_no from the context unless the user's current question explicitly changes them.
+3. If the user asks a completely new question, drop the old constraints.
+
 User: "{question}"
 Output:"""
 
 
 # Core extraction function
 
-def extract_intent(question: str) -> IntentResult | None:
+def extract_intent(question: str, context: str = "") -> IntentResult | None:
+    from llm_provider import manager
 
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not api_key:
-        logger.debug(
-            "GEMINI_API_KEY not set — AI intent extraction disabled. "
-            "Falling back to rule-based engine."
-        )
+    if not manager.providers:
+        logger.debug("No LLM providers available — falling back to rule-based engine.")
         return None
 
-    try:
-        from google import genai  # type: ignore[import]
-        from google.genai import types as genai_types  # type: ignore[import]
-    except ImportError:
-        logger.warning(
-            "google-genai not installed. "
-            "Run: pip install google-genai  — falling back to rule-based engine."
-        )
-        return None
-
-    # 3. Build prompt and call the Gemini API.
-    prompt = _build_prompt(question)
-    try:
-        client = genai.Client(api_key=api_key)
-
-        response = client.models.generate_content(
-            model="gemini-3.5-flash",
-            contents=prompt,
-            config=genai_types.GenerateContentConfig(
-                temperature=0.0,        # Deterministic output for classification
-                max_output_tokens=256,  # Intent JSON is always short
-            ),
-        )
-    except Exception as exc:
-
-        logger.warning("Gemini API call failed: %s — falling back to rule-based engine.", exc)
-        return None
-
-    # 4. Extract text from the response safely.
-
-    try:
-        raw_text: str = response.text.strip()
-    except (AttributeError, ValueError) as exc:
-        logger.warning("Gemini response has no text content: %s", exc)
-        return None
-
+    # 3. Build prompt and call the ProviderManager
+    prompt = _build_prompt(question, context)
+    
+    raw_text, provider, lat, depth = manager.generate_with_retry(prompt, task_type="conversation")
     if not raw_text:
-        logger.warning("Gemini returned an empty response for question: %r", question)
         return None
-
-    if raw_text.startswith("```"):
-        lines = raw_text.splitlines()
-        # Remove first line (``` or ```json) and last line (```)
-        raw_text = "\n".join(lines[1:-1]).strip()
 
     try:
         data: dict[str, Any] = json.loads(raw_text)
     except json.JSONDecodeError as exc:
         logger.warning(
-            "Gemini returned invalid JSON for question %r: %s — raw: %r",
-            question, exc, raw_text[:200],
+            "Provider %s returned invalid JSON for question %r: %s — raw: %r",
+            provider, question, exc, raw_text[:200],
         )
         return None
 
     intent: str = data.get("intent", "")
     if intent == "unknown" or intent not in SUPPORTED_INTENTS:
         logger.info(
-            "Gemini returned unsupported intent %r for question %r — "
-            "falling back to rule-based engine.",
-            intent, question,
+            "Provider %s returned unsupported intent %r for question %r — falling back to rule-based engine.",
+            provider, intent, question,
         )
         return None
 
@@ -193,8 +161,7 @@ def extract_intent(question: str) -> IntentResult | None:
     for required_field in required_fields:
         if data.get(required_field) is None:
             logger.warning(
-                "Gemini intent %r is missing required field %r — "
-                "falling back to rule-based engine.",
+                "Intent %r missing required field %r — falling back to rule-based engine.",
                 intent, required_field,
             )
             return None
@@ -205,14 +172,14 @@ def extract_intent(question: str) -> IntentResult | None:
         try:
             year = int(year_raw)
             if year not in (1, 2, 3, 4):
-                logger.warning("Gemini returned out-of-range year %r — ignoring.", year_raw)
+                logger.warning("Returned out-of-range year %r — ignoring.", year_raw)
                 year = None
         except (TypeError, ValueError):
-            logger.warning("Gemini returned non-integer year %r — ignoring.", year_raw)
+            logger.warning("Returned non-integer year %r — ignoring.", year_raw)
 
     logger.info(
-        "AI intent extracted: intent=%r department=%r year=%r roll_no=%r",
-        intent, data.get("department"), year, data.get("roll_no"),
+        "AI intent extracted: intent=%r department=%r year=%r roll_no=%r confidence=%r",
+        intent, data.get("department"), year, data.get("roll_no"), data.get("confidence")
     )
 
     return IntentResult(
@@ -221,9 +188,67 @@ def extract_intent(question: str) -> IntentResult | None:
         year=year,
         roll_no=data.get("roll_no") or None,
         subject=data.get("subject") or None,
+        confidence=float(data.get("confidence", 1.0)),
     )
 
-
 def is_ai_enabled() -> bool:
-    """Return True if a Gemini API key is configured in the environment."""
-    return bool(os.environ.get("GEMINI_API_KEY", "").strip())
+    """Return True if any LLM provider is configured."""
+    from llm_provider import manager
+    return len(manager.providers) > 0
+
+def generate_conversational_response(question: str, context: str, structured_data: dict | list, lang_instruction: str = "") -> str:
+    """Generates a natural language response based on the query, context, and data returned from the DB."""
+    from llm_provider import manager
+    
+    if not manager.providers:
+        return "Here is the data you requested."
+        
+    try:
+        import assistant_personality
+        
+        # Clean up structured_data to prevent Demo Mode metadata leaking into natural language
+        clean_data = {}
+        if isinstance(structured_data, dict):
+            clean_data = {k: v for k, v in structured_data.items() if k not in ["context_used", "generated_sql", "source", "confidence"]}
+        else:
+            clean_data = structured_data
+            
+        # We need to cap the size of structured_data to avoid huge payloads
+        data_str = str(clean_data)
+        if len(data_str) > 3000:
+            data_str = data_str[:3000] + "... (truncated)"
+            
+        system_persona = assistant_personality.get_system_prompt_addition()
+            
+        prompt = f"""{system_persona}
+The user asked a database question: "{question}"
+We executed a SQL query and got the following data back:
+{data_str}
+
+CRITICAL INSTRUCTIONS:
+1. Write a concise, professional response summarizing the data (e.g. "There are 4 students from Delhi." or "The average age is 20.").
+2. EVIDENCE-BASED ANSWERING: You MUST ONLY describe what is supported by the DATABASE RESULTS. Do not speculate or hallucinate.
+3. If the results are empty, state clearly that no matching records were found.
+4. DO NOT use filler phrases like "It looks like", "We found some data", or "Based on the data". Just state the facts directly.
+5. NEVER leak internal details. NEVER say "Using current context", "Generated SQL", or mention metadata.
+6. Do NOT output raw JSON or markdown tables unless explicitly asked.
+{lang_instruction}
+
+CONVERSATION CONTEXT:
+{context}
+
+USER'S LATEST QUESTION:
+{question}
+
+DATABASE RESULTS:
+{data_str}
+
+CONVERSATIONAL RESPONSE:"""
+
+        raw, provider, lat, depth = manager.generate_with_retry(prompt, task_type="conversation")
+        if not raw:
+            return "Here is the data."
+        return raw.strip()
+    except Exception as exc:
+        logger.warning("Conversational response generation failed: %s", exc)
+        return "Here is the data."
