@@ -317,8 +317,11 @@ cd ..
 ## Environment Variables
 
 | Variable | Required | Description |
-|---|---|---|
-| `GEMINI_API_KEY` | Optional | Google Gemini API key. Without it, queries use the rule-based engine only. Get a free key at [aistudio.google.com](https://aistudio.google.com/) |
+| `GEMINI_API_KEY` | Optional | Google Gemini API key. Used as the primary LLM provider. Get a free key at [aistudio.google.com](https://aistudio.google.com/) |
+| `GROQ_API_KEY` | Optional | Groq API key for ultra-fast Llama3 fallback. |
+| `OPENROUTER_API_KEY` | Optional | OpenRouter API key for high-availability fallback. |
+
+*Note: The app will work without these, but will gracefully degrade to rule-based queries only.*
 
 ---
 
@@ -420,16 +423,19 @@ Output:
 ```bash
 # On Windows
 set GEMINI_API_KEY=AIza...
+set GROQ_API_KEY=gsk_...
+set OPENROUTER_API_KEY=sk-or-v1-...
 
 # Or add to .env file
 GEMINI_API_KEY=AIza...
+GROQ_API_KEY=gsk_...
+OPENROUTER_API_KEY=sk-or-v1-...
 ```
 
 ---
 
 ## Limitations
 
-- **No conversation memory** — each question is independent; there is no chat history on the server.
 - **Synthetic academic data** — marks are statistically modelled, not from real students.
 - **Text-to-SQL Limitations** — custom generated queries are strictly limited to `SELECT` operations and capped at 200 rows for performance and safety.
 - **No authentication** — the API is open; suitable for local development only.
@@ -441,13 +447,10 @@ GEMINI_API_KEY=AIza...
 
 | Improvement | Description |
 |---|---|
-| **Conversational memory** | Maintain chat context so follow-up questions work naturally |
 | **Analytics dashboard** | Charts and graphs for marks distributions, department comparisons |
 | **Export to CSV / PDF** | Download full reports in common office formats |
-| **Advanced semantic search** | Vector embedding search for more flexible query coverage |
 | **Secure role-based access** | Admin / student / faculty login with JWT authentication |
 | **Real-time data entry** | UI for adding students and recording marks |
-| **Multilingual support** | Hindi and regional-language question support via Gemini |
 
 ---
 
