@@ -45,7 +45,7 @@ SQL_EXAMPLES = [
     {
         "id": "sql_city_toppers",
         "type": "sql_example",
-        "content": "Question: Which city produces the most toppers? (Count of students with avg marks > 85 by city)\nSQL:\nSELECT s.home_city, COUNT(*) as topper_count\nFROM students s\nJOIN (SELECT roll_no, AVG(marks) as avg_marks FROM marks GROUP BY roll_no HAVING avg_marks > 85) m ON s.roll_no = m.roll_no\nGROUP BY s.home_city\nORDER BY topper_count DESC;"
+        "content": "Question: Which city produces the most toppers? (Count of students with avg marks > 85 by city)\nSQL:\nSELECT home_city, COUNT(*) as topper_count\nFROM students\nWHERE roll_no IN (SELECT roll_no FROM marks GROUP BY roll_no HAVING AVG(marks) > 85)\nGROUP BY home_city\nORDER BY topper_count DESC;"
     },
     {
         "id": "sql_hardest_semester",

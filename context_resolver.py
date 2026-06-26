@@ -33,12 +33,13 @@ The user just sent this new message:
 "{new_message}"
 
 RULES:
-1. Identify any NEW filters or constraints in the user's new message (e.g., department, city, year, semester).
-2. ADD them to the current filters.
-3. OVERWRITE existing filters if the user contradicts them (e.g., changing "Delhi" to "Mumbai").
-4. If the user asks a COMPLETELY new question that implies clearing old filters (e.g., "What about the whole college?", "Reset", or a totally disjoint topic), then REMOVE the irrelevant old filters.
-5. If the new message is just a follow-up (e.g., "Only from Delhi", "What about third year?"), KEEP the old filters and add the new ones.
-6. Return ONLY raw JSON representing the final active filters. No markdown.
+1. Identify any NEW filters or constraints in the user's new message. A filter MUST be a concrete value that restricts the data (e.g., "Computer Science", "Delhi", "Year 3", "Semester 6").
+2. DO NOT extract aggregate targets or question subjects as filters. If the user asks "Which city...", then "city" is the target of the question, NOT a filter. "toppers" is a status/concept, NOT a city name.
+3. ADD valid filters to the current filters.
+4. OVERWRITE existing filters if the user contradicts them (e.g., changing "Delhi" to "Mumbai").
+5. If the user asks a COMPLETELY new question that implies clearing old filters, then REMOVE the irrelevant old filters.
+6. If the new message is just a follow-up (e.g., "Only from Delhi", "What about third year?"), KEEP the old filters and add the new ones.
+7. Return ONLY raw JSON representing the final active filters. No markdown.
 
 JSON OUTPUT FORMAT:
 {{

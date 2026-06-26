@@ -40,15 +40,18 @@ Active conversation filters: {json.dumps(context_filters, ensure_ascii=False) if
 Generated SQL: {test_sql}
 
 TASK:
-1. Extract requested entities (department, city, year, semester) from the user query and active filters.
-2. Check if the Generated SQL introduces ANY of these filters (department, city, year, semester) in its WHERE or JOIN clauses that were NOT requested.
-3. If the SQL is safe and ONLY uses requested filters, respond with YES (PASS). If it hallucinates unrequested filters, respond with NO (FAIL).
+1. Identify the entities and filters requested by the user.
+2. Check if the Generated SQL introduces ANY additional WHERE or JOIN filters on (department, city, year, semester) that were NOT requested.
+3. Note: If the user requested "Computer Science", then `LIKE '%Computer Science%'` or `= 'Computer Science'` are VALID and NOT hallucinations.
 
-Respond ONLY with YES or NO."""
+If the SQL hallucinates unrequested filters, output FAIL.
+Otherwise, if the SQL only uses requested filters, output PASS.
+
+Respond ONLY with the single word PASS or FAIL."""
     ans, _, _, _ = manager.generate_with_retry(prompt, task_type="conversation")
     logger.info("Requested Entities Check: User Query='%s', Active Filters=%s", user_query, context_filters)
     logger.info("Verification Result: %s for SQL: %s", ans, test_sql)
-    if ans and "NO" in ans.upper():
+    if ans and "FAIL" in ans.upper():
         logger.warning("Verification Failed. Hallucination detected.")
         return False
     logger.info("Verification Passed.")
